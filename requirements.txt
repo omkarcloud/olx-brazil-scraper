@@ -1,0 +1,4 @@
+bottle
+cheroot
+curl_cffi>=0.16
+marshmallow
