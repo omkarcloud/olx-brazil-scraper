@@ -51,7 +51,7 @@ Failure taxonomy (scraper_errors, mapped to HTTP by route_glue):
   OlxBadRequest     upstream 400 (unknown category code)         — never retried
   OlxNotFound       410 / 404 / "Ops" page / home-page fallback   — never retried
 """
-import json
+import fastjson
 import os
 import re
 import sys
@@ -65,6 +65,7 @@ import config
 import egress
 from scraper_errors import BadRequest, Blocked, NotFound, UpstreamError
 from olx_brazil.refs import SITE
+from scraper_utils import retry, sessions
 
 # Rotated on every retryable failure (see module docstring).
 IMPERSONATE_PROFILES = ("chrome", "safari17_0", "edge101")
@@ -141,27 +142,14 @@ def _drop_session(blocked=False):
     sess = getattr(_local, "session", None)
     _local.session = None
     _local.profile_idx = getattr(_local, "profile_idx", 0) + 1
-    if sess is not None:
-        try:
-            sess.close()
-        except Exception:
-            pass
+    sessions.close_quietly(sess)
     if blocked and config.olx_brazil_proxy() is None:
         with _fallback_lock:
             _fallback_until = max(_fallback_until, time.time() + config.OLX_BRAZIL_BLOCK_COOLDOWN)
 
 
 def _retrying(fn):
-    last = None
-    for attempt in range(1, config.MAX_RETRIES + 1):
-        try:
-            return fn()
-        except OlxUpstreamError as e:
-            last = e
-            _drop_session(blocked=isinstance(e, OlxBlocked))
-            if attempt < config.MAX_RETRIES:
-                time.sleep(config.RETRY_BACKOFF * attempt)
-    raise last
+    return retry.run(fn, config, OlxUpstreamError, lambda e: _drop_session(blocked=isinstance(e, OlxBlocked)))
 
 
 def _page_title(text):
@@ -258,6 +246,7 @@ def fetch_listing(path, query):
     hub answer is retried once with sp=3. /autos-e-pecas stays a hub even
     with a keyword: only its subcategories list. An unknown category path
     serves the HOME page, which is NotFound too."""
+    query = query or {}
     html = _get_page(listing_url(path, query), f"listing {path or 'brasil'}")
     if _is_listing(html):
         return html
@@ -379,7 +368,7 @@ def _token_expiry(token):
         import base64
         payload = token.split(".")[1]
         payload += "=" * (-len(payload) % 4)
-        return int(json.loads(base64.urlsafe_b64decode(payload)).get("exp") or 0)
+        return int(fastjson.loads(base64.urlsafe_b64decode(payload)).get("exp") or 0)
     except Exception:
         return 0
 

@@ -38,11 +38,13 @@ values, url-parser answers and the FIPE brand / model pages.
 """
 import html as html_lib
 import json
+import fastjson
 import re
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from olx_brazil.refs import SITE, profile_link
+from scraper_utils.values import num as _float
 
 _DECODER = json.JSONDecoder()
 _FLIGHT_RE = re.compile(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)</script>', re.S)
@@ -74,15 +76,6 @@ def _int(value):
         return None
     try:
         return int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-
-
-def _float(value):
-    if value is None or isinstance(value, bool) or value == "":
-        return None
-    try:
-        return float(value)
     except (TypeError, ValueError):
         return None
 
@@ -186,7 +179,7 @@ def _unquote_config(value):
         stripped = value.strip()
         if stripped[:1] in ('"', "[", "{") or stripped in ("true", "false", "null"):
             try:
-                return json.loads(stripped)
+                return fastjson.loads(stripped)
             except ValueError:
                 return stripped.strip('"')
     return value
@@ -234,7 +227,7 @@ def flight_text(html):
     parts = []
     for chunk in chunks:
         try:
-            parts.append(json.loads('"' + chunk + '"'))
+            parts.append(fastjson.loads('"' + chunk + '"'))
         except ValueError:
             continue
     return "".join(parts)
@@ -276,7 +269,7 @@ def initial_data(html):
     if not match:
         return None
     try:
-        return json.loads(html_lib.unescape(match.group(1)))
+        return fastjson.loads(html_lib.unescape(match.group(1)))
     except ValueError:
         return None
 
@@ -287,7 +280,7 @@ def next_data(html):
     if not match:
         return None
     try:
-        return (json.loads(match.group(1)).get("props") or {}).get("pageProps")
+        return (fastjson.loads(match.group(1)).get("props") or {}).get("pageProps")
     except (ValueError, AttributeError):
         return None
 
